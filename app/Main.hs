@@ -1,15 +1,15 @@
 {-# OPTIONS -Wall #-}
 module Main where
 
--- import Data.List
+import Data.List
 import Data.List.Split
-
--- import Data.Maybe (mapMaybe)
+import Data.Maybe (mapMaybe)
+import Debug.Trace
 
 main :: IO ()
 main = do
   contents <- getContents
-  print $ parseDimacs contents
+  print $ naiveSolve $ parseDimacs contents
 
 -- Key types
 -- assignments are integers representing
@@ -39,7 +39,9 @@ p cnf 4 3
 --}
 
 parseDimacs :: String -> Cnf
-parseDimacs s = parseDimacsClauses $ map read $ splitOn " " $ unwords $ dropHeaderLines $ lines s
+parseDimacs s = parseDimacsClauses $ map read $ tokens
+  where
+    tokens = filter (/= "") $ splitOn " " $ unwords $ dropHeaderLines $ lines s
 
 dropHeaderLines :: [String] -> [String]
 dropHeaderLines (l : ls)
@@ -55,32 +57,49 @@ parseDimacsClauses ns =
       maxVar = maximum $ map abs $ ns
    in Cnf expr maxVar
 
-{--
 -- Naive Solver
--- Brute force, no heuristics
-naiveSolve :: Expr -> SatRes
-naiveSolve = naiveSolveFrom []
+-- Brute force, no heuristics or optimisations
+naiveSolve :: Cnf -> SatRes
+naiveSolve (Cnf expr _) = naiveSolveFrom [] expr
 
 naiveSolveFrom :: Assignments -> Expr -> SatRes
 naiveSolveFrom as exp
   | isUnsat reduced = Unsat
-
-  | null reduced = Sat as
-  | otherwise = let
-      try1 =
-    in  -- make another assignment
+  | null reduced = Sat (sortByVar as)
+  | otherwise =
+      let nu = nextUnassigned as
+          -- try1 = trace ("trying " ++ (show (-nu : as))) naiveSolveFrom (-nu : as) exp
+          try1 = naiveSolveFrom (-nu : as) exp
+          -- try2 = trace ("trying " ++ (show (nu : as))) naiveSolveFrom (nu : as) exp
+          try2 = naiveSolveFrom (nu : as) exp
+       in -- make another assignment
+          -- trace ("reduced: " ++ (show reduced) ++ " assigned:" ++ (show as)) $
+          combine try1 try2
   where
     Expr reduced = reduce as exp
 
-isUnsat :: p -> Bool
-isUnsat _ = False
+isUnsat :: [Clause] -> Bool
+isUnsat [] = False
+isUnsat (Clause [] : _) = True
+isUnsat (_ : cs) = isUnsat cs
 
-reduce _ e = e
+reduce :: Assignments -> Expr -> Expr
+reduce as (Expr cs) = Expr $ mapMaybe (reduceClause as) cs
+
+reduceClause :: Assignments -> Clause -> Maybe Clause
+reduceClause [] c = Just c
+reduceClause (a : as) (Clause c)
+  | elem a c = Nothing -- remove clause
+  | otherwise = reduceClause as $ Clause $ filter (/= -a) c -- remove negated term if present
 
 combine :: SatRes -> SatRes -> SatRes
 combine Unsat Unsat = Unsat
 combine (Sat as) _ = Sat as
 combine _ (Sat as) = Sat as
 
-nextUnassigned
---}
+nextUnassigned :: Assignments -> Int
+nextUnassigned [] = 1
+nextUnassigned as = maximum (map abs as) + 1
+
+sortByVar :: [Int] -> [Int]
+sortByVar = sortBy (\a b -> compare (abs a) (abs b))
