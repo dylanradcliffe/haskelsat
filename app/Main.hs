@@ -1,6 +1,7 @@
 {-# OPTIONS -Wall #-}
 module Main where
 
+import Data.Bits (Bits (xor))
 import Data.List
 import Data.List.Split
 import Data.Maybe (mapMaybe)
@@ -9,7 +10,7 @@ import Debug.Trace
 main :: IO ()
 main = do
   contents <- getContents
-  print $ solver $ parseDimacs contents
+  print $ solve solver $ parseDimacs contents
   where
     solver = solver2
 
@@ -58,6 +59,22 @@ parseDimacsClauses ns =
       expr = Expr $ map Clause clauses_trunced
       maxVar = maximum $ map abs $ ns
    in Cnf expr maxVar
+
+-- solver wrapper
+solve :: (Cnf -> SatRes) -> Cnf -> SatRes
+solve f cnf = completeSat mx $ f cnf
+  where
+    Cnf _ mx = cnf
+
+completeSat :: Int -> SatRes -> SatRes
+completeSat _ Unsat = Unsat
+completeSat mx (Sat a) = Sat $ fillMissingValues 1 mx $ sortByVar a
+
+fillMissingValues :: Int -> Int -> Assignments -> Assignments
+fillMissingValues mn mx [] = [mn .. mx]
+fillMissingValues mn mx (a : as)
+  | (abs a) > mn = (-mn) : fillMissingValues (mn + 1) mx (a : as)
+  | otherwise = a : fillMissingValues ((abs a) + 1) mx as
 
 -- Naive Solver
 -- Brute force, no heuristics or optimisations
@@ -114,7 +131,7 @@ solver2 (Cnf expr _) = solver2From [] expr
 solver2From :: Assignments -> Expr -> SatRes
 solver2From as exp
   | isUnsat reduced = Unsat
-  | null reduced = Sat (sortByVar as)
+  | null reduced = Sat as
   | otherwise =
       let nu = nextBestUnassigned as reduced
           -- try1 = trace ("trying " ++ (show (-nu : as))) naiveSolveFrom (-nu : as) exp
